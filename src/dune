@@ -1,0 +1,4 @@
+(library
+ (name hc_page)
+ (libraries brr)
+ (package hc_page))
