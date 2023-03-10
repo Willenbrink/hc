@@ -33,14 +33,15 @@ let send_cycle_ev ev =
 
    TODO trigger error event and allow to disable logging *)
 
-let ( let* ) r f = match r with Ok v -> f v | Error _ as e -> e
+let ( let* ) = Result.bind
 let error str = Error (Jv.Error.v str)
 let reword_error f e = error (f (Jv.Error.message e))
-let el_log_if_error el = function
-| Ok v -> v
-| Error e ->
+let el_log_error el e =
     send_cycle_ev ev_cycle_error;
     Console.(error [str "hc: element "; el; e ])
+let el_log_if_error el = function
+| Ok v -> v
+| Error e -> el_log_error el e
 
 (* Attributes, classes and headers *)
 
@@ -211,16 +212,16 @@ module Query = struct
 
   let stamp_if_needed el = match El.at At.query_rescue el with
   | None -> ()
-  | Some rescue ->
-      if Jstr.equal (Jstr.v "false") rescue then () else
+  | Some rescue -> match Jstr.to_string rescue with
+    | "false" -> ()
+    | "true" ->
       let stamp = rescue_stamp el in
-      if Jstr.equal (Jstr.v "true") rescue
-      then El.set_prop hc_rescue_stamp_prop stamp el else
-      if Jstr.equal (Jstr.v "force") rescue
-      then begin
-        El.set_prop hc_rescue_stamp_prop Jstr.(v "Force!" + stamp) el;
-        El.set_at At.query_rescue (Some (Jstr.v "true")) el;
-      end else
+      El.set_prop hc_rescue_stamp_prop stamp el
+    | "force" ->
+      let stamp = rescue_stamp el in
+      El.set_prop hc_rescue_stamp_prop Jstr.(v "Force!" + stamp) el;
+      El.set_at At.query_rescue (Some (Jstr.v "true")) el;
+    | _ ->
       let err = Jstr.(At.query_rescue + v ": invalid value: " + rescue) in
       el_log_if_error el (Error err)
 
@@ -345,14 +346,18 @@ module Event = struct
         prevent_some_default e;
         if filter ev e then cb e else ()
     in
-    Ok (ignore (Ev.listen etype cb target))
+    Ev.listen etype cb target
+    |> ignore
 
   let connect_el cb el () =
     Query.stamp_if_needed el;
-    el_log_if_error el @@
-    let* ev = of_el el in
-    if ev.once then Ok (ignore (once ev el cb)) else
-    listen ev el cb
+    match of_el el with
+    | Error e -> el_log_error el e
+    | Ok ({once=true; _} as ev) ->
+      once ev el cb
+      |> ignore
+    | Ok ({once=false; _} as ev) ->
+      listen ev el cb
 
   let connect_descendents cb el =
     El.fold_find_by_selector ~root:el (connect_el cb) At.sel_request ()
