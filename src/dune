@@ -1,4 +1,6 @@
 (library
  (name hc_page)
+ (public_name hc_page)
  (libraries brr)
- (package hc_page))
+ ; (package hc_page)
+)
